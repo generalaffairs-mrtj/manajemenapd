@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manajemen APD - General Affairs</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { 
+                extend: { 
+                    colors: { primary: '#4f46e5', secondary: '#4338ca', darkBg: '#0f172a', darkCard: '#1e293b' },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                } 
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; scroll-behavior: smooth; }
+        .hide { display: none !important; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .glass { background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); }
+        .dark .glass { background: rgba(30,41,59,0.9); }
+        /* Loader */
+        .loader { border-top-color: #4f46e5; -webkit-animation: spinner 1.5s linear infinite; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-darkBg dark:text-slate-200 flex flex-col min-h-screen transition-colors duration-300 overflow-x-hidden">
+
+    <!-- OVERLAY LOADING & TOAST -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/60 z-[100] hidden flex-col items-center justify-center backdrop-blur-sm">
+        <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-200 h-12 w-12 mb-4"></div>
+        <p class="text-white font-semibold">Memproses Data...</p>
+    </div>
+    <div id="toast" class="fixed top-6 right-6 z-[110] px-6 py-3 rounded-xl shadow-2xl transition-all duration-300 transform opacity-0 translate-x-12 pointer-events-none font-medium flex items-center gap-3">
+        <i id="toastIcon" class="ph text-2xl"></i><span id="toastMsg">Message</span>
+    </div>
+
+    <!-- NAVBAR PUBLIC -->
+    <nav id="publicNavbar" class="fixed w-full z-50 glass border-b border-slate-200 dark:border-slate-700 transition-colors">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-20 items-center">
+            <div class="flex items-center cursor-pointer" onclick="navigate('home')">
+                <div class="w-10 h-10 bg-primary text-white rounded-lg flex items-center justify-center font-bold text-xl shadow-lg mr-3">GA</div>
+                <span class="font-bold text-xl tracking-tight text-slate-900 dark:text-white">Manajemen APD</span>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="toggleDarkMode()" class="text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-white text-2xl transition-colors"><i class="ph ph-moon"></i></button>
+                <button onclick="navigate('login')" class="bg-primary hover:bg-secondary text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md transition-all">Admin Login</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTAINER -->
+    <main id="main-container" class="flex-grow pt-20"></main>
+
+    <!-- FOOTER -->
+    <footer id="publicFooter" class="bg-white dark:bg-darkCard border-t border-slate-200 dark:border-slate-800 mt-auto transition-colors">
+        <div class="max-w-7xl mx-auto px-4 py-8 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-slate-500 font-medium">
+            <div class="flex gap-4 md:gap-6 flex-wrap justify-center">
+                <a href="#" class="hover:text-primary transition-colors">Privacy Policy</a>
+                <a href="#" class="hover:text-primary transition-colors">Terms of Use</a>
+                <a href="#" class="hover:text-primary transition-colors">Cookie Consent</a>
+            </div>
+            <div id="footer-copyright" class="text-center md:text-right">© 2026 General Affairs Ltd. All rights reserved.</div>
+        </div>
+    </footer>
+
+    <script>
+        // ==========================================
+        // GANTI URL DI BAWAH INI DENGAN URL DEPLOY APPS SCRIPT ANDA
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwk8oIDCP4RZHbC-uEclE8XA0tYVA-HwbD0uf1p-XfNqtSyjEPwgdqMx-SBbASl6L2W/exec';
+        // ==========================================
+
+        let appState = { 
+            user: null, currentUser: null, users: [], settings: {}, 
+            stockMaster: [], peminjamanAktif: [], pengembalianHistory: [], disposalHistory: [], stockSummary: [] 
+        };
+
+        // --- UTILS ---
+        const showLoading = (show) => document.getElementById('loadingOverlay').classList.toggle('hidden', !show);
+        const toggleDarkMode = () => document.documentElement.classList.toggle('dark');
+        
+        const showToast = (msg, type='success') => {
+            const t = document.getElementById('toast'), i = document.getElementById('toastIcon');
+            document.getElementById('toastMsg').innerText = msg;
+            let base = `fixed top-6 right-6 z-[110] px-6 py-3 rounded-xl shadow-2xl transition-all duration-300 transform font-medium flex items-center gap-3 ${type==='success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`;
+            t.className = base + " opacity-100 translate-x-0";
+            i.className = type==='success' ? 'ph ph-check-circle text-2xl' : 'ph ph-warning-circle text-2xl';
+            setTimeout(() => { t.className = base + " opacity-0 translate-x-12 pointer-events-none"; }, 3000);
+        };
+        const toBase64 = f => new Promise((resolve, reject) => { const r = new FileReader(); r.readAsDataURL(f); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = e => reject(e); });
+
+        // --- API CALL ---
+        async function fetchAPI(action, payload = null) {
+            if (APPS_SCRIPT_URL === 'YOUR_WEB_APP_URL') { showToast('URL Apps Script belum diisi!', 'error'); return null; }
+            try {
+                const res = await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST', body: JSON.stringify({ action, ...payload }), headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+                return data;
+            } catch (err) { console.error(err); showToast(err.message || 'Gagal terhubung ke server', 'error'); return null; }
+        }
+
+        // --- INIT & ROUTING ---
+        async function initApp() {
+            showLoading(true);
+            const data = await fetchAPI('getInitialData');
+            if (data) {
+                appState = { ...appState, ...data };
+                updateFooter();
+                generateStockSummary();
+            }
+            showLoading(false);
+            handleRouting();
+            window.addEventListener('hashchange', handleRouting);
+            
+            window.ukuranSepatuOptions = '';
+            for(let i=28; i<=42; i++) window.ukuranSepatuOptions += `<option value="${i}">${i}</option>`;
+        }
+
+        function updateFooter() {
+            document.getElementById('footer-copyright').innerText = appState.settings.footerCopyright || '© 2026 General Affairs Ltd. All rights reserved.';
+        }
+
+        function generateStockSummary() {
+            let mapStock = {};
+            // Inisiasi Stok Awal
+            appState.stockMaster.forEach(s => {
+                const key = `${s.jenis}_${s.ukuran}`;
+                mapStock[key] = { id: s.id, noUrut: s.noUrut, jenis: s.jenis, ukuran: s.ukuran, awal: parseInt(s.awal), pinjam: 0, disposal: 0, sisa: parseInt(s.awal) };
+            });
+
+            // Kalkulasi Dipinjam
+            appState.peminjamanAktif.forEach(p => {
+                const items = p.detailApd.split('|');
+                items.forEach(item => {
+                    const parts = item.split('_'); 
+                    if(parts.length === 3) {
+                        const key = `${parts[0]}_${parts[1]}`;
+                        if(mapStock[key]) {
+                            mapStock[key].pinjam += parseInt(parts[2]);
+                            mapStock[key].sisa -= parseInt(parts[2]);
+                        }
+                    }
+                });
+            });
+
+            // Kalkulasi Disposal
+            appState.disposalHistory.forEach(d => {
+                const key = `${d.jenis}_${d.ukuran}`;
+                if(mapStock[key]) {
+                    mapStock[key].disposal += parseInt(d.jumlah);
+                    mapStock[key].sisa -= parseInt(d.jumlah);
+                }
+            });
+
+            appState.stockSummary = Object.values(mapStock).sort((a,b) => a.noUrut - b.noUrut);
+        }
+
+        function navigate(route) { window.location.hash = route; }
+        function handleRouting() {
+            const hash = window.location.hash.substring(1);
+            const c = document.getElementById('main-container');
+            const nav = document.getElementById('publicNavbar');
+            const foot = document.getElementById('publicFooter');
+            window.scrollTo(0, 0);
+            
+            if (hash === 'cpanel') {
+                if (!appState.user) return navigate('login');
+                nav.classList.add('hide'); foot.classList.add('hide');
+                renderCPanel(c);
+            } else {
+                nav.classList.remove('hide'); foot.classList.remove('hide');
+                if (hash === '' || hash === 'home') renderHome(c);
+                else if (hash === 'login') renderLogin(c);
+                else if (hash === 'form-pinjam') renderFormPinjam(c);
+                else if (hash === 'form-kembali') renderFormKembali(c);
+                else if (hash === 'cek-stok') renderCekStok(c);
+                else renderHome(c);
+            }
+        }
+
+        // --- VIEWS PUBLIC ---
+        function renderHome(container) {
+            container.innerHTML = `
+                <div class="max-w-5xl mx-auto px-4 py-12 md:py-24 text-center">
+                    <div class="inline-flex items-center px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-bold mb-6"><span class="w-2 h-2 rounded-full bg-primary animate-pulse mr-2"></span> Sistem Aktif</div>
+                    <h1 class="text-4xl md:text-6xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-6">Portal Manajemen <span class="text-primary">APD</span></h1>
+                    <p class="text-lg text-slate-500 dark:text-slate-400 mb-12 max-w-2xl mx-auto">Layanan terpadu General Affairs untuk peminjaman, pengembalian, dan pengecekan stok Alat Pelindung Diri (APD).</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div onclick="navigate('form-pinjam')" class="group cursor-pointer bg-white dark:bg-darkCard p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-xl hover:border-primary transition-all text-left">
+                            <div class="w-14 h-14 bg-blue-50 dark:bg-blue-900/30 text-primary rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:scale-110 transition-transform"><i class="ph ph-hard-hat"></i></div>
+                            <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-2">Form Peminjaman</h3>
+                            <p class="text-slate-500 dark:text-slate-400 text-sm">Pinjam APD baru sesuai dengan standar K3 untuk kebutuhan pekerjaan Anda.</p>
+                        </div>
+                        <div onclick="navigate('form-kembali')" class="group cursor-pointer bg-white dark:bg-darkCard p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-xl hover:border-green-500 transition-all text-left">
+                            <div class="w-14 h-14 bg-green-50 dark:bg-green-900/30 text-green-500 rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:scale-110 transition-transform"><i class="ph ph-arrows-left-right"></i></div>
+                            <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-2">Form Pengembalian</h3>
+                            <p class="text-slate-500 dark:text-slate-400 text-sm">Kembalikan APD yang sudah selesai digunakan beserta laporan kondisinya.</p>
+                        </div>
+                        <div onclick="navigate('cek-stok')" class="group cursor-pointer bg-white dark:bg-darkCard p-8 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-xl hover:border-orange-500 transition-all text-left">
+                            <div class="w-14 h-14 bg-orange-50 dark:bg-orange-900/30 text-orange-500 rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:scale-110 transition-transform"><i class="ph ph-stack"></i></div>
+                            <h3 class="text-xl font-bold text-slate-800 dark:text-white mb-2">Cek Stok APD</h3>
+                            <p class="text-slate-500 dark:text-slate-400 text-sm">Lihat ketersediaan alat pelindung diri secara real-time sebelum meminjam.</p>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        function renderLogin(container) {
+            container.innerHTML = `
+                <div class="min-h-[70vh] flex items-center justify-center px-4 py-12">
+                    <div class="bg-white dark:bg-darkCard p-8 md:p-10 rounded-3xl shadow-xl w-full max-w-md border border-slate-100 dark:border-slate-800">
+                        <div class="text-center mb-8"><div class="inline-flex justify-center items-center w-16 h-16 rounded-2xl bg-primary/10 text-primary mb-4"><i class="ph ph-lock-key text-3xl"></i></div><h2 class="text-2xl font-bold text-slate-900 dark:text-white">Admin Login</h2></div>
+                        <form onsubmit="handleLogin(event)" class="space-y-5">
+                            <div><label class="block text-sm font-medium mb-2 dark:text-slate-300">Username</label><input type="text" id="loginUser" class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary" required></div>
+                            <div><label class="block text-sm font-medium mb-2 dark:text-slate-300">Password</label><input type="password" id="loginPass" class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary" required></div>
+                            <button type="submit" class="w-full bg-primary hover:bg-secondary text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-primary/30">Masuk Dashboard</button>
+                        </form>
+
+                        <div class="mt-8 pt-6 border-t border-slate-100 dark:border-slate-700 text-center">
+                            <p class="text-xs text-slate-500 mb-3 uppercase tracking-wider font-bold">Bypass Login (Development)</p>
+                            <div class="flex gap-2 justify-center">
+                                <button onclick="bypassLogin('master')" class="text-xs bg-indigo-100 text-primary hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 px-4 py-2 rounded-lg font-bold transition-colors">Bypass Master</button>
+                                <button onclick="bypassLogin('admin')" class="text-xs bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 px-4 py-2 rounded-lg font-bold transition-colors">Bypass Admin</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        function renderCekStok(container) {
+            let trs = appState.stockSummary.map(s => `
+                <tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <td class="py-4 px-4 font-semibold">${s.jenis}</td><td class="py-4 px-4 text-center">${s.ukuran}</td>
+                    <td class="py-4 px-4 text-center font-bold ${s.sisa > 0 ? 'text-green-500' : 'text-red-500'}">${s.sisa}</td>
+                </tr>`).join('');
+            
+            container.innerHTML = `
+                <div class="max-w-4xl mx-auto px-4 py-12">
+                    <button onclick="navigate('home')" class="mb-6 flex items-center text-slate-500 hover:text-primary"><i class="ph ph-arrow-left mr-2"></i> Kembali</button>
+                    <div class="bg-white dark:bg-darkCard rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+                        <div class="p-6 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                            <h2 class="text-xl font-bold flex items-center gap-2 dark:text-white"><i class="ph ph-stack text-primary text-2xl"></i> Ketersediaan Stok APD</h2>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm dark:text-slate-300">
+                                <thead><tr class="bg-slate-50 dark:bg-slate-800 text-slate-500"><th class="py-3 px-4">Jenis APD</th><th class="py-3 px-4 text-center">Ukuran</th><th class="py-3 px-4 text-center">Sisa Stok</th></tr></thead>
+                                <tbody>${trs || '<tr><td colspan="3" class="py-8 text-center text-slate-500">Data stok belum tersedia.</td></tr>'}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        // --- FORM PEMINJAMAN ---
+        function renderFormPinjam(container) {
+            container.innerHTML = `
+                <div class="max-w-3xl mx-auto px-4 py-12">
+                    <button onclick="navigate('home')" class="mb-6 flex items-center text-slate-500 hover:text-primary"><i class="ph ph-arrow-left mr-2"></i> Kembali</button>
+                    <div class="bg-white dark:bg-darkCard rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+                        <div class="p-6 md:p-10">
+                            <h2 class="text-2xl font-bold mb-8 flex items-center gap-3 dark:text-white"><i class="ph ph-hard-hat text-primary text-3xl"></i> Formulir Peminjaman APD</h2>
+                            <form onsubmit="submitPinjam(event)" class="space-y-6">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div><label class="block text-sm font-medium mb-2 dark:text-slate-300">Nama Karyawan *</label><input type="text" id="p_nama" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary"></div>
+                                    <div><label class="block text-sm font-medium mb-2 dark:text-slate-300">NIK (Angka) *</label><input type="number" id="p_nik" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary"></div>
+                                    <div><label class="block text-sm font-medium mb-2 dark:text-slate-300">Unit Kerja *</label><input type="text" id="p_unit" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary"></div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2 dark:text-slate-300">Lokasi Kerja *</label>
+                                        <select id="p_lokasi" onchange="document.getElementById('p_lokasi_lain').classList.toggle('hidden', this.value !== 'Lainnya')" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary appearance-none">
+                                            <option value="">Pilih Lokasi...</option><option value="Wisma Nusantara">Wisma Nusantara</option><option value="Transport Hub">Transport Hub</option><option value="Depo Lebak Bulus">Depo Lebak Bulus</option><option value="Lainnya">Lainnya</option>
+                                        </select>
+                                        <input type="text" id="p_lokasi_lain" placeholder="Sebutkan lokasi..." class="mt-3 hidden w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary">
+                                    </div>
+                                </div>
+                                
+                                <div class="pt-6 border-t border-slate-100 dark:border-slate-800">
+                                    <label class="block text-base font-bold mb-4 dark:text-white">Pilih Jenis APD *</label>
+                                    <div class="space-y-4">
+                                        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                                            <label class="flex items-center gap-3 cursor-pointer mb-3">
+                                                <input type="checkbox" id="cb_vest" onchange="document.getElementById('dt_vest').classList.toggle('hidden', !this.checked)" class="w-5 h-5 text-primary rounded focus:ring-primary">
+                                                <span class="font-bold text-slate-800 dark:text-white">Safety Vest</span>
+                                            </label>
+                                            <div id="dt_vest" class="hidden grid grid-cols-2 gap-4 pl-8">
+                                                <div><label class="text-xs text-slate-500 block mb-1">Ukuran</label><select id="sz_vest" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-600"><option value="S">S</option><option value="M">M</option><option value="L">L</option><option value="XL">XL</option><option value="XXL">XXL</option><option value="XXXL">XXXL</option></select></div>
+                                                <div><label class="text-xs text-slate-500 block mb-1">Jumlah</label><input type="number" id="qt_vest" min="1" value="1" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-600"></div>
+                                            </div>
+                                        </div>
+                                        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                                            <label class="flex items-center gap-3 cursor-pointer mb-3">
+                                                <input type="checkbox" id="cb_shoes" onchange="document.getElementById('dt_shoes').classList.toggle('hidden', !this.checked)" class="w-5 h-5 text-primary rounded focus:ring-primary">
+                                                <span class="font-bold text-slate-800 dark:text-white">Safety Shoes</span>
+                                            </label>
+                                            <div id="dt_shoes" class="hidden grid grid-cols-2 gap-4 pl-8">
+                                                <div><label class="text-xs text-slate-500 block mb-1">Ukuran</label><select id="sz_shoes" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-600">${window.ukuranSepatuOptions}</select></div>
+                                                <div><label class="text-xs text-slate-500 block mb-1">Jumlah</label><input type="number" id="qt_shoes" min="1" value="1" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-600"></div>
+                                            </div>
+                                        </div>
+                                        <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                                            <label class="flex items-center gap-3 cursor-pointer mb-3">
+                                                <input type="checkbox" id="cb_helmet" onchange="document.getElementById('dt_helmet').classList.toggle('hidden', !this.checked)" class="w-5 h-5 text-primary rounded focus:ring-primary">
+                                                <span class="font-bold text-slate-800 dark:text-white">Safety Helmet</span>
+                                            </label>
+                                            <div id="dt_helmet" class="hidden pl-8">
+                                                <div class="w-1/2"><label class="text-xs text-slate-500 block mb-1">Jumlah (All Size)</label><input type="number" id="qt_helmet" min="1" value="1" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-600"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="pt-6 border-t border-slate-100 dark:border-slate-800">
+                                    <label class="block text-sm font-medium mb-2 dark:text-slate-300">Durasi Peminjaman (Maks 12 Bulan) *</label>
+                                    <div class="flex gap-3">
+                                        <input type="number" id="p_dur_angka" required min="1" class="w-2/3 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary">
+                                        <select id="p_dur_tipe" class="w-1/3 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-primary">
+                                            <option value="Hari">Hari</option><option value="Minggu">Minggu</option><option value="Bulan">Bulan</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button type="submit" class="w-full bg-primary hover:bg-secondary text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg flex justify-center items-center gap-2"><i class="ph ph-paper-plane-tilt"></i> Kirim Permohonan</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        async function submitPinjam(e) {
+            e.preventDefault();
+            let apd = [];
+            if(document.getElementById('cb_vest').checked) apd.push(`Safety Vest_${document.getElementById('sz_vest').value}_${document.getElementById('qt_vest').value}`);
+            if(document.getElementById('cb_shoes').checked) apd.push(`Safety Shoes_${document.getElementById('sz_shoes').value}_${document.getElementById('qt_shoes').value}`);
+            if(document.getElementById('cb_helmet').checked) apd.push(`Safety Helmet_AllSize_${document.getElementById('qt_helmet').value}`);
+            
+            if(apd.length === 0) return showToast('Pilih minimal 1 jenis APD!', 'error');
+            
+            let loc = document.getElementById('p_lokasi').value; 
+            if(loc === 'Lainnya') loc = document.getElementById('p_lokasi_lain').value;
+
+            const payload = {
+                nama: document.getElementById('p_nama').value, nik: document.getElementById('p_nik').value,
+                divisi: document.getElementById('p_unit').value, lokasi: loc, detailApd: apd.join('|'),
+                durasi: `${document.getElementById('p_dur_angka').value} ${document.getElementById('p_dur_tipe').value}`
+            };
+
+            showLoading(true);
+            const res = await fetchAPI('savePeminjaman', { data: payload });
+            showLoading(false);
+            if(res && res.success) { showToast('Berhasil dikirim!'); await initApp(); navigate('home'); }
+        }
+
+        // --- FORM PENGEMBALIAN ---
+        function renderFormKembali(container) {
+            container.innerHTML = `
+                <div class="max-w-3xl mx-auto px-4 py-12">
+                    <button onclick="navigate('home')" class="mb-6 flex items-center text-slate-500 hover:text-primary"><i class="ph ph-arrow-left mr-2"></i> Kembali</button>
+                    <div class="bg-white dark:bg-darkCard rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+                        <div class="p-6 md:p-10">
+                            <h2 class="text-2xl font-bold mb-8 flex items-center gap-3 dark:text-white"><i class="ph ph-arrows-left-right text-green-500 text-3xl"></i> Formulir Pengembalian APD</h2>
+                            
+                            <div class="mb-8 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+                                <label class="block text-sm font-medium mb-3 dark:text-slate-300">Masukkan NIK untuk mencari data peminjaman:</label>
+                                <div class="flex gap-3">
+                                    <input type="number" id="k_search" placeholder="Contoh: 12345" class="flex-grow px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-green-500">
+                                    <button type="button" onclick="cariPeminjaman()" class="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-xl font-bold transition-colors">Cari</button>
+                                </div>
+                            </div>
+
+                            <form id="formKembali" onsubmit="submitKembali(event)" class="space-y-6 hidden">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 dark:bg-slate-800/30 p-5 rounded-xl">
+                                    <div><label class="text-xs text-slate-500 block">Nama Karyawan</label><p id="k_nama_txt" class="font-bold dark:text-white">-</p></div>
+                                    <div><label class="text-xs text-slate-500 block">Divisi/Unit</label><p id="k_div_txt" class="font-bold dark:text-white">-</p></div>
+                                </div>
+                                <input type="hidden" id="k_id_pinjam"><input type="hidden" id="k_nama"><input type="hidden" id="k_nik"><input type="hidden" id="k_divisi">
+
+                                <div class="pt-4">
+                                    <label class="block text-sm font-bold mb-4 dark:text-white">Pilih APD yang Dikembalikan *</label>
+                                    <div id="k_items_container" class="space-y-3"></div>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2 dark:text-slate-300">Lokasi Pengembalian *</label>
+                                        <select id="k_lokasi" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-green-500 appearance-none">
+                                            <option value="">Pilih...</option><option value="Wisma Nusantara">Wisma Nusantara</option><option value="Transport Hub">Transport Hub</option><option value="Depo Lebak Bulus">Depo Lebak Bulus</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-2 dark:text-slate-300">Kondisi APD *</label>
+                                        <select id="k_kondisi" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 dark:bg-darkBg outline-none focus:border-green-500 appearance-none">
+                                            <option value="Baik">Baik</option><option value="Rusak">Rusak</option><option value="Kotor">Kotor</option>
+                                        </select>
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <label class="block text-sm font-medium mb-2 dark:text-slate-300">Bukti Foto (Wajib jika Rusak/Kotor)</label>
+                                        <input type="file" id="k_foto" accept="image/*" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-600 hover:file:bg-green-100">
+                                    </div>
+                                </div>
+                                <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg flex justify-center items-center gap-2"><i class="ph ph-check-circle"></i> Konfirmasi Pengembalian</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        window.currentBorrowData = null;
+        function cariPeminjaman() {
+            const nik = document.getElementById('k_search').value;
+            if(!nik) return showToast('Masukkan NIK', 'error');
+            const records = appState.peminjamanAktif.filter(p => p.nik == nik);
+            if(records.length === 0) return showToast('Tidak ada peminjaman aktif untuk NIK ini', 'error');
+            
+            const p = records[records.length - 1]; 
+            window.currentBorrowData = p;
+
+            document.getElementById('k_id_pinjam').value = p.id;
+            document.getElementById('k_nama').value = p.nama; document.getElementById('k_nama_txt').innerText = p.nama;
+            document.getElementById('k_nik').value = p.nik;
+            document.getElementById('k_divisi').value = p.divisi; document.getElementById('k_div_txt').innerText = p.divisi;
+
+            const c = document.getElementById('k_items_container'); c.innerHTML = '';
+            p.detailApd.split('|').forEach((item, idx) => {
+                const parts = item.split('_'); 
+                if(parts.length===3) {
+                    c.innerHTML += `
+                        <div class="flex items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-darkCard">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" id="retCb_${idx}" value="${item}" class="w-5 h-5 text-green-500 rounded focus:ring-green-500" checked>
+                                <div><p class="font-bold text-sm dark:text-white">${parts[0]}</p><p class="text-xs text-slate-500">Ukuran: ${parts[1]} | Dipinjam: ${parts[2]}</p></div>
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-slate-500">Kembalikan:</span>
+                                <input type="number" id="retQty_${idx}" min="1" max="${parts[2]}" value="${parts[2]}" class="w-16 p-2 border rounded-lg dark:bg-darkBg dark:border-slate-600 text-center outline-none focus:border-green-500">
+                            </div>
+                        </div>`;
+                }
+            });
+            document.getElementById('formKembali').classList.remove('hidden');
+            showToast('Data peminjaman ditemukan');
+        }
+
+        async function submitKembali(e) {
+            e.preventDefault();
+            let returnDetails = [];
+            const checkboxes = document.querySelectorAll('input[id^="retCb_"]');
+            checkboxes.forEach((cb, idx) => {
+                if(cb.checked) {
+                    const parts = cb.value.split('_');
+                    const qty = document.getElementById(`retQty_${idx}`).value;
+                    returnDetails.push(`${parts[0]}_${parts[1]}_${qty}`);
+                }
+            });
+
+            if(returnDetails.length === 0) return showToast('Pilih minimal 1 APD!', 'error');
+
+            const kondisi = document.getElementById('k_kondisi').value;
+            const fileInput = document.getElementById('k_foto');
+            if(kondisi !== 'Baik' && fileInput.files.length === 0) return showToast('Wajib sertakan foto jika Rusak/Kotor', 'error');
+
+            let fileData = "", mimeType = "", filename = "";
+            if(fileInput.files.length > 0) {
+                fileData = await toBase64(fileInput.files[0]);
+                mimeType = fileInput.files[0].type; filename = fileInput.files[0].name;
+            }
+
+            const payload = {
+                id_pinjam: document.getElementById('k_id_pinjam').value, nama: document.getElementById('k_nama').value,
+                nik: document.getElementById('k_nik').value, divisi: document.getElementById('k_divisi').value,
+                lokasi: document.getElementById('k_lokasi').value, kondisi: kondisi,
+                detail_kembali: returnDetails.join('|'), fileData, mimeType, filename
+            };
+
+            showLoading(true);
+            const res = await fetchAPI('savePengembalian', { data: payload });
+            showLoading(false);
+            if(res && res.success) { showToast('Pengembalian berhasil!'); await initApp(); navigate('home'); }
+        }
+
+        // --- AUTH ---
+        function handleLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('loginUser').value.trim(), p = document.getElementById('loginPass').value;
+            const found = appState.users.find(x => x.username === u && x.password === p);
+            if(found) { appState.user = found.role; appState.currentUser = found; navigate('cpanel'); showToast('Login Berhasil'); }
+            else showToast('Username atau password salah', 'error');
+        }
+        function bypassLogin(role) {
+            appState.user = role;
+            appState.currentUser = { id: Date.now(), displayName: role === 'master' ? 'Bypass Master' : 'Bypass Admin', username: 'bypass_' + role, role: role };
+            navigate('cpanel');
+            showToast('Bypass Login Berhasil');
+        }
+        function logout() { appState.user = null; appState.currentUser = null; navigate('home'); showToast('Berhasil logout'); }
+
+        // --- CPANEL ADMIN ---
+        function renderCPanel(container) {
+            const isMaster = appState.user === 'master';
+            const cu = appState.currentUser;
+            const tabs = [
+                { id: 'monitoring', icon: 'ph-squares-four', label: 'Monitoring APD', hide: !isMaster },
+                { id: 'stock', icon: 'ph-stack', label: 'Kelola Stok APD', hide: false },
+                { id: 'disposal', icon: 'ph-trash-simple', label: 'Disposal APD', hide: false },
+                { id: 'users', icon: 'ph-users', label: 'Kelola User', hide: !isMaster },
+                { id: 'settings', icon: 'ph-gear', label: 'Pengaturan', hide: !isMaster },
+                { id: 'profile', icon: 'ph-user-circle-gear', label: 'Edit Profil', hide: false } 
+            ].filter(t => !t.hide);
+
+            const navHtml = tabs.map(t => `<button onclick="switchCpanelTab('${t.id}')" id="tab-btn-${t.id}" class="w-full flex items-center px-4 py-3 text-sm font-medium rounded-xl text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"><i class="ph ${t.icon} mr-3 text-lg"></i> ${t.label}</button>`).join('');
+
+            container.innerHTML = `
+                <div class="flex h-[calc(100vh-80px)] overflow-hidden">
+                    <aside class="w-64 bg-white dark:bg-darkCard border-r border-slate-200 dark:border-slate-800 flex flex-col transition-colors z-40 hidden md:flex">
+                        <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                            <div><p class="text-xs font-bold text-slate-400 uppercase">Logged in as</p><p class="font-bold text-primary dark:text-white">${cu.displayName}</p></div>
+                        </div>
+                        <nav class="flex-1 p-4 space-y-1 overflow-y-auto">${navHtml}</nav>
+                        <div class="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                            <button onclick="toggleDarkMode()" class="text-slate-500 hover:text-primary"><i class="ph ph-moon text-2xl"></i></button>
+                            <button onclick="logout()" class="flex items-center text-red-500 hover:text-red-600 font-bold text-sm"><i class="ph ph-sign-out mr-2"></i> Logout</button>
+                        </div>
+                    </aside>
+                    <main class="flex-1 bg-slate-50 dark:bg-darkBg overflow-y-auto p-4 md:p-8 hide-scroll" id="cpanel-content"></main>
+                </div>`;
+            
+            switchCpanelTab(isMaster ? 'monitoring' : 'stock');
+        }
+
+        function switchCpanelTab(tab) {
+            ['monitoring','stock','disposal','users','settings','profile'].forEach(t => {
+                const btn = document.getElementById(`tab-btn-${t}`);
+                if(btn) {
+                    if(t===tab) btn.classList.add('bg-primary/10','text-primary','dark:bg-primary/20');
+                    else btn.classList.remove('bg-primary/10','text-primary','dark:bg-primary/20');
+                }
+            });
+            const c = document.getElementById('cpanel-content');
+            if(tab==='monitoring') renderCpMonitoring(c);
+            else if(tab==='stock') renderCpStock(c);
+            else if(tab==='disposal') renderCpDisposal(c);
+            else if(tab==='users') renderCpUsers(c);
+            else if(tab==='settings') renderCpSettings(c);
+            else if(tab==='profile') renderCpProfile(c);
+        }
+
+        // --- TAB MONITORING ---
+        function renderCpMonitoring(c) {
+            // Kalkulasi Resume Total APD
+            let totalAwal = 0, totalPinjam = 0, totalDisposal = 0, totalSisa = 0;
+            appState.stockSummary.forEach(s => {
+                totalAwal += s.awal; totalPinjam += s.pinjam; 
+                totalDisposal += s.disposal; totalSisa += s.sisa;
+            });
+
+            const trsPinjam = appState.peminjamanAktif.map(p => `
+                <tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="p-3 text-xs text-slate-500">${p.id}</td><td class="p-3 font-bold">${p.nama}<br><span class="text-xs font-normal text-slate-500">${p.nik}</span></td>
+                    <td class="p-3 text-sm">${p.divisi}</td><td class="p-3 text-xs">${p.detailApd.replace(/\|/g, '<br>')}</td>
+                </tr>`).join('');
+                
+            const trsKembali = appState.pengembalianHistory.map(p => {
+                let foto = p.fotoUrl && p.fotoUrl !== '#' ? `<a href="${p.fotoUrl}" target="_blank" class="text-primary hover:underline">Lihat</a>` : '-';
+                return `<tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="p-3 text-xs text-slate-500">${p.id}</td><td class="p-3 font-bold">${p.nama}</td>
+                    <td class="p-3 text-xs">${p.detailKembali.replace(/\|/g, '<br>')}</td><td class="p-3 text-sm">${p.kondisi}</td><td class="p-3 text-sm">${foto}</td>
+                </tr>`;
+            }).join('');
+
+            c.innerHTML = `
+                <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-bold dark:text-white">Monitoring APD</h2><button onclick="initApp();switchCpanelTab('monitoring')" class="px-4 py-2 bg-slate-200 dark:bg-slate-700 rounded-lg text-sm font-bold hover:bg-slate-300 dark:hover:bg-slate-600 transition"><i class="ph ph-arrows-clockwise mr-1"></i> Refresh</button></div>
+                
+                <!-- Resume/Summary Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Stok Awal</p>
+                        <h3 class="text-3xl font-extrabold text-slate-800 dark:text-white">${totalAwal}</h3>
+                    </div>
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 text-orange-500">Sedang Dipinjam</p>
+                        <h3 class="text-3xl font-extrabold text-orange-500">${totalPinjam}</h3>
+                    </div>
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 text-red-500">Total Disposal</p>
+                        <h3 class="text-3xl font-extrabold text-red-500">${totalDisposal}</h3>
+                    </div>
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 text-green-500">Stok Tersedia</p>
+                        <h3 class="text-3xl font-extrabold text-green-500">${totalSisa}</h3>
+                    </div>
+                </div>
+
+                <!-- Aktif -->
+                <div class="mb-8 bg-white dark:bg-darkCard rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-primary flex items-center gap-2"><i class="ph ph-users"></i> Peminjaman Aktif</h3></div>
+                    <div class="overflow-x-auto"><table class="w-full text-left dark:text-slate-300">
+                        <thead class="bg-slate-50 dark:bg-slate-800 text-sm text-slate-500"><tr><th class="p-3">ID/Waktu</th><th class="p-3">Nama/NIK</th><th class="p-3">Unit</th><th class="p-3">APD Dipinjam</th></tr></thead>
+                        <tbody>${trsPinjam || '<tr><td colspan="4" class="p-4 text-center">Kosong</td></tr>'}</tbody>
+                    </table></div>
+                </div>
+                <!-- Histori -->
+                <div class="bg-white dark:bg-darkCard rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-green-500 flex items-center gap-2"><i class="ph ph-check-square-offset"></i> Histori Pengembalian</h3></div>
+                    <div class="overflow-x-auto"><table class="w-full text-left dark:text-slate-300">
+                        <thead class="bg-slate-50 dark:bg-slate-800 text-sm text-slate-500"><tr><th class="p-3">Waktu</th><th class="p-3">Nama</th><th class="p-3">Dikembalikan</th><th class="p-3">Kondisi</th><th class="p-3">Foto</th></tr></thead>
+                        <tbody>${trsKembali || '<tr><td colspan="5" class="p-4 text-center">Kosong</td></tr>'}</tbody>
+                    </table></div>
+                </div>`;
+        }
+
+        // --- TAB KELOLA STOCK ---
+        function renderCpStock(c) {
+            const trs = appState.stockSummary.map(s => `
+                <tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="p-3 text-sm">${s.noUrut}</td><td class="p-3 font-semibold">${s.jenis}</td><td class="p-3 text-center">${s.ukuran}</td>
+                    <td class="p-3 text-center font-bold text-blue-500">${s.awal}</td><td class="p-3 text-center text-orange-500">${s.pinjam}</td>
+                    <td class="p-3 text-center text-red-500">${s.disposal}</td><td class="p-3 text-center font-bold text-green-500">${s.sisa}</td>
+                    <td class="p-3 text-center"><button onclick="editStock('${s.id}', '${s.jenis}', '${s.ukuran}', ${s.noUrut}, ${s.awal})" class="text-slate-400 hover:text-primary"><i class="ph ph-pencil-simple text-lg"></i></button></td>
+                </tr>`).join('');
+
+            c.innerHTML = `
+                <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-bold dark:text-white">Master Data Stok</h2><button onclick="document.getElementById('stockForm').classList.toggle('hidden')" class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-md hover:bg-secondary"><i class="ph ph-plus mr-1"></i> Tambah Master</button></div>
+                
+                <div id="stockForm" class="hidden mb-6 bg-white dark:bg-darkCard p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                    <form onsubmit="saveStock(event)" class="flex flex-wrap gap-4 items-end">
+                        <input type="hidden" id="st_id">
+                        <div class="w-full md:w-auto flex-1"><label class="block text-xs text-slate-500 mb-1">No Urut</label><input type="number" id="st_no" required class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none"></div>
+                        <div class="w-full md:w-auto flex-[2]"><label class="block text-xs text-slate-500 mb-1">Jenis APD</label><select id="st_jenis" required class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none"><option value="Safety Vest">Safety Vest</option><option value="Safety Shoes">Safety Shoes</option><option value="Safety Helmet">Safety Helmet</option></select></div>
+                        <div class="w-full md:w-auto flex-1"><label class="block text-xs text-slate-500 mb-1">Ukuran</label><input type="text" id="st_ukuran" required class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none"></div>
+                        <div class="w-full md:w-auto flex-1"><label class="block text-xs text-slate-500 mb-1">Stok Awal</label><input type="number" id="st_awal" required min="0" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none"></div>
+                        <button type="submit" class="bg-primary text-white px-6 py-2 rounded-lg font-bold">Simpan</button>
+                    </form>
+                </div>
+
+                <div class="bg-white dark:bg-darkCard rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
+                    <div class="overflow-x-auto"><table class="w-full text-left dark:text-slate-300">
+                        <thead class="bg-slate-50 dark:bg-slate-800 text-sm text-slate-500"><tr><th class="p-3">No</th><th class="p-3">Jenis</th><th class="p-3 text-center">Ukuran</th><th class="p-3 text-center">Stok Awal</th><th class="p-3 text-center">Dipinjam</th><th class="p-3 text-center">Disposal</th><th class="p-3 text-center">Sisa</th><th class="p-3 text-center">Aksi</th></tr></thead>
+                        <tbody>${trs || '<tr><td colspan="8" class="p-4 text-center">Kosong</td></tr>'}</tbody>
+                    </table></div>
+                </div>`;
+        }
+
+        function editStock(id, jenis, ukuran, noUrut, awal) {
+            document.getElementById('stockForm').classList.remove('hidden');
+            document.getElementById('st_id').value = id; document.getElementById('st_no').value = noUrut;
+            document.getElementById('st_jenis').value = jenis; document.getElementById('st_ukuran').value = ukuran;
+            document.getElementById('st_awal').value = awal;
+        }
+
+        async function saveStock(e) {
+            e.preventDefault();
+            const payload = {
+                id: document.getElementById('st_id').value, noUrut: document.getElementById('st_no').value,
+                jenis: document.getElementById('st_jenis').value, ukuran: document.getElementById('st_ukuran').value,
+                awal: document.getElementById('st_awal').value
+            };
+            showLoading(true);
+            const res = await fetchAPI('saveStockMaster', { data: payload });
+            if(res && res.success) { showToast('Disimpan!'); await initApp(); switchCpanelTab('stock'); }
+            showLoading(false);
+        }
+
+        // --- TAB DISPOSAL APD ---
+        function renderCpDisposal(c) {
+            const trs = appState.disposalHistory.map(d => `
+                <tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="p-3 text-xs">${d.waktu}</td><td class="p-3 font-bold">${d.jenis}</td>
+                    <td class="p-3 text-center">${d.ukuran}</td><td class="p-3 text-center font-bold text-red-500">${d.jumlah}</td>
+                    <td class="p-3">${d.alasan}</td><td class="p-3 text-xs text-slate-500">${d.user}</td>
+                </tr>`).join('');
+
+            const opsiBarang = appState.stockSummary.map(s => `<option value="${s.jenis}_${s.ukuran}">${s.jenis} - Ukuran ${s.ukuran} (Sisa: ${s.sisa})</option>`).join('');
+
+            c.innerHTML = `
+                <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-bold dark:text-white">Disposal APD</h2><button onclick="document.getElementById('dispForm').classList.toggle('hidden')" class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-bold shadow-md hover:bg-red-600"><i class="ph ph-trash mr-1"></i> Catat Disposal</button></div>
+                
+                <div id="dispForm" class="hidden mb-6 bg-white dark:bg-darkCard p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 border-l-4 border-l-red-500">
+                    <h3 class="font-bold mb-4">Form Pencatatan Barang Rusak / Kadaluarsa</h3>
+                    <form onsubmit="saveDisposal(event)" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label class="block text-xs text-slate-500 mb-1">Pilih Barang dari Master Stok</label><select id="disp_item" required class="w-full p-3 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none">${opsiBarang}</select></div>
+                            <div><label class="block text-xs text-slate-500 mb-1">Jumlah Disposal</label><input type="number" id="disp_qty" min="1" required class="w-full p-3 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none"></div>
+                        </div>
+                        <div><label class="block text-xs text-slate-500 mb-1">Alasan Disposal (Rusak / Expired / Hilang)</label><input type="text" id="disp_alasan" required class="w-full p-3 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none"></div>
+                        <button type="submit" class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-bold w-full md:w-auto">Simpan Disposal</button>
+                    </form>
+                </div>
+
+                <div class="bg-white dark:bg-darkCard rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-red-500 flex items-center gap-2"><i class="ph ph-clock-counter-clockwise"></i> Histori Disposal</h3></div>
+                    <div class="overflow-x-auto"><table class="w-full text-left dark:text-slate-300">
+                        <thead class="bg-slate-50 dark:bg-slate-800 text-sm text-slate-500"><tr><th class="p-3">Waktu</th><th class="p-3">Jenis</th><th class="p-3 text-center">Ukuran</th><th class="p-3 text-center">Jml</th><th class="p-3">Alasan</th><th class="p-3">Admin</th></tr></thead>
+                        <tbody>${trs || '<tr><td colspan="6" class="p-4 text-center">Belum ada histori disposal</td></tr>'}</tbody>
+                    </table></div>
+                </div>`;
+        }
+
+        async function saveDisposal(e) {
+            e.preventDefault();
+            const item = document.getElementById('disp_item').value;
+            const qty = parseInt(document.getElementById('disp_qty').value);
+            const alasan = document.getElementById('disp_alasan').value;
+            const [jenis, ukuran] = item.split('_');
+            
+            // Validasi Sisa Stok
+            const stockItem = appState.stockSummary.find(s => s.jenis === jenis && s.ukuran === ukuran);
+            if(!stockItem || qty > stockItem.sisa) return showToast('Jumlah melebihi sisa stok yang tersedia!', 'error');
+
+            const payload = {
+                id: Date.now(),
+                jenis: jenis, ukuran: ukuran, jumlah: qty, alasan: alasan,
+                user: appState.currentUser.displayName
+            };
+
+            showLoading(true);
+            const res = await fetchAPI('saveDisposal', { data: payload });
+            if(res && res.success) { 
+                showToast('Disposal berhasil dicatat!'); 
+                await initApp(); 
+                switchCpanelTab('disposal'); 
+            }
+            showLoading(false);
+        }
+
+        // --- TAB KELOLA USER ---
+        function renderCpUsers(c) {
+            const trs = appState.users.map(u => `
+                <tr class="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="p-3 font-bold">${u.displayName}<br><span class="text-xs font-normal text-slate-500">${u.username}</span></td>
+                    <td class="p-3 text-sm"><span class="px-2 py-1 rounded ${u.role === 'master' ? 'bg-indigo-100 text-primary' : 'bg-slate-100 text-slate-600'} font-semibold text-xs uppercase">${u.role === 'master' ? 'Master Admin' : 'Admin'}</span></td>
+                    <td class="p-3 text-center"><button onclick="editUser('${u.id}')" class="text-slate-400 hover:text-primary mr-2"><i class="ph ph-pencil-simple text-lg"></i></button>${u.role !== 'master' ? `<button onclick="delUser('${u.id}')" class="text-slate-400 hover:text-red-500"><i class="ph ph-trash text-lg"></i></button>` : ''}</td>
+                </tr>`).join('');
+            
+            c.innerHTML = `
+                <div class="flex justify-between items-center mb-6"><h2 class="text-2xl font-bold dark:text-white">Kelola Admin</h2><button onclick="document.getElementById('uForm').classList.toggle('hidden')" class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-md hover:bg-secondary"><i class="ph ph-plus mr-1"></i> Tambah User</button></div>
+                
+                <div id="uForm" class="hidden mb-6 bg-white dark:bg-darkCard p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                    <form onsubmit="saveUser(event)" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input type="hidden" id="u_id">
+                        <div><label class="block text-xs text-slate-500 mb-1">Nama Tampilan</label><input type="text" id="u_nama" required class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        <div><label class="block text-xs text-slate-500 mb-1">Username</label><input type="text" id="u_user" required class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        <div><label class="block text-xs text-slate-500 mb-1">Password (Kosongkan jk tdk ubah)</label><input type="password" id="u_pass" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        <div><label class="block text-xs text-slate-500 mb-1">Role/Kategori Admin</label><select id="u_role" class="w-full p-2 border rounded-lg dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"><option value="admin">Admin</option><option value="master">Master Admin</option></select></div>
+                        <div class="md:col-span-2 text-right"><button type="submit" class="bg-primary hover:bg-secondary text-white px-6 py-2 rounded-lg font-bold">Simpan User</button></div>
+                    </form>
+                </div>
+                <div class="bg-white dark:bg-darkCard rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left dark:text-slate-300"><thead class="bg-slate-50 dark:bg-slate-800 text-sm text-slate-500"><tr><th class="p-3">User</th><th class="p-3">Kategori</th><th class="p-3 text-center">Aksi</th></tr></thead><tbody>${trs}</tbody></table></div></div>`;
+        }
+        function editUser(id) {
+            const u = appState.users.find(x => x.id == id);
+            document.getElementById('uForm').classList.remove('hidden');
+            document.getElementById('u_id').value = u.id; document.getElementById('u_nama').value = u.displayName;
+            document.getElementById('u_user').value = u.username; document.getElementById('u_role').value = u.role;
+        }
+        async function saveUser(e) {
+            e.preventDefault();
+            const payload = { id: document.getElementById('u_id').value, displayName: document.getElementById('u_nama').value, username: document.getElementById('u_user').value, role: document.getElementById('u_role').value, password: document.getElementById('u_pass').value };
+            if(!payload.password) delete payload.password; // Mencegah reset password kosong
+            showLoading(true); const res = await fetchAPI('saveUser', { data: payload });
+            if(res && res.id) { showToast('User disimpan!'); await initApp(); switchCpanelTab('users'); } showLoading(false);
+        }
+        async function delUser(id) {
+            if(!confirm('Hapus user ini?')) return;
+            showLoading(true); const res = await fetchAPI('deleteUser', { id });
+            if(res && res.success) { showToast('Dihapus!'); await initApp(); switchCpanelTab('users'); } showLoading(false);
+        }
+
+        // --- TAB PENGATURAN ---
+        function renderCpSettings(c) {
+            const s = appState.settings;
+            c.innerHTML = `
+                <div class="mb-6"><h2 class="text-2xl font-bold dark:text-white">Pengaturan Sistem</h2></div>
+                <div class="max-w-2xl bg-white dark:bg-darkCard p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                    <form onsubmit="saveSettings(event)" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-sm font-medium mb-1 dark:text-slate-300">WhatsApp</label><input type="text" id="set_wa" value="${s.footerWA || ''}" class="w-full p-3 border rounded-xl dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                            <div><label class="block text-sm font-medium mb-1 dark:text-slate-300">Email</label><input type="text" id="set_email" value="${s.footerEmail || ''}" class="w-full p-3 border rounded-xl dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        </div>
+                        <div><label class="block text-sm font-medium mb-1 dark:text-slate-300">Copyright</label><input type="text" id="set_copy" value="${s.footerCopyright || ''}" class="w-full p-3 border rounded-xl dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        <button type="submit" class="w-full bg-primary text-white py-3 rounded-xl font-bold hover:bg-secondary">Simpan Pengaturan</button>
+                    </form>
+                </div>`;
+        }
+        async function saveSettings(e) {
+            e.preventDefault();
+            const payload = [
+                {key: 'footerWA', value: document.getElementById('set_wa').value},
+                {key: 'footerEmail', value: document.getElementById('set_email').value},
+                {key: 'footerCopyright', value: document.getElementById('set_copy').value}
+            ];
+            showLoading(true); const res = await fetchAPI('saveMultipleSettings', { settings: payload });
+            if(res && res.success) { showToast('Pengaturan disimpan!'); await initApp(); } showLoading(false);
+        }
+
+        // --- TAB EDIT PROFIL ---
+        function renderCpProfile(c) {
+            const cu = appState.currentUser;
+            c.innerHTML = `
+                <div class="mb-6"><h2 class="text-2xl font-bold dark:text-white">Edit Profil Saya</h2></div>
+                <div class="max-w-xl bg-white dark:bg-darkCard p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+                    <form onsubmit="saveProfile(event)" class="space-y-4">
+                        <div><label class="block text-sm font-medium mb-1 dark:text-slate-300">Nama Tampilan</label><input type="text" id="prof_nama" value="${cu.displayName}" required class="w-full p-3 border rounded-xl dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        <div><label class="block text-sm font-medium mb-1 dark:text-slate-300">Username</label><input type="text" id="prof_user" value="${cu.username}" required class="w-full p-3 border rounded-xl dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        <div><label class="block text-sm font-medium mb-1 dark:text-slate-300">Password Baru (Kosongkan jk tdk ubah)</label><input type="password" id="prof_pass" placeholder="***" class="w-full p-3 border rounded-xl dark:bg-darkBg dark:border-slate-700 outline-none focus:border-primary"></div>
+                        <button type="submit" class="w-full bg-primary text-white py-3 rounded-xl font-bold hover:bg-secondary">Update Profil</button>
+                    </form>
+                </div>`;
+        }
+        
+        async function saveProfile(e) {
+            e.preventDefault();
+            const cu = appState.currentUser;
+            const payload = {
+                id: cu.id,
+                displayName: document.getElementById('prof_nama').value,
+                username: document.getElementById('prof_user').value,
+                role: cu.role,
+                password: document.getElementById('prof_pass').value
+            };
+            if(!payload.password) delete payload.password;
+
+            showLoading(true);
+            const res = await fetchAPI('saveUser', { data: payload });
+            if(res && res.id) {
+                showToast('Profil diperbarui!');
+                cu.displayName = payload.displayName; cu.username = payload.username;
+                if(payload.password) cu.password = payload.password;
+                
+                // Sinkron dengan appState.users 
+                const idx = appState.users.findIndex(u => u.id === res.id);
+                if(idx !== -1) { appState.users[idx].displayName = cu.displayName; appState.users[idx].username = cu.username; }
+                
+                renderCPanel(document.getElementById('main-container')); // Re-render sidebar nama
+                switchCpanelTab('profile'); // Tetap di tab profil
+            }
+            showLoading(false);
+        }
+
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
